@@ -2,9 +2,8 @@ from itertools import product
 import unittest
 
 import torch
-from torch.testing._internal.common_utils import TEST_MKL
+from torch.testing._internal.common_utils import TEST_CUDA
 from torch.testing._internal.jit_utils import JitTestCase
-from itertools import product
 
 if __name__ == "__main__":
     raise RuntimeError(
@@ -13,9 +12,6 @@ if __name__ == "__main__":
         "instead."
     )
 
-TEST_CUDA = torch.cuda.is_available()
-TEST_MKL
-
 
 class TestDeviceAnalysis(JitTestCase):
     @classmethod
@@ -23,7 +19,9 @@ class TestDeviceAnalysis(JitTestCase):
         cls.cpu = torch.device("cpu")
         cls.cuda = torch.device("cuda")
         cls.vulkan = torch.device("vulkan")
-        cls.mkldnn = torch.device("mkldnn")
+        cls.mkldnn = torch.device(
+            "mkldnn"
+        )  # MKLDNN can't mix with other device types at all
         cls.device_types = [cls.cpu, cls.cuda, cls.vulkan]
 
     @staticmethod
@@ -152,7 +150,16 @@ class TestDeviceAnalysis(JitTestCase):
         def set_cpu(x):
             return x.cpu()
 
-        for fn, out_device in ((set_cuda, self.cuda), (set_cpu, self.cpu)):
+        def set_mkldnn(x):
+            return x.to_mkldnn()
+
+        device_pairs = (
+            (set_cuda, self.cuda),
+            (set_cpu, self.cpu),
+            (set_mkldnn, self.mkldnn),
+        )
+
+        for fn, out_device in device_pairs:
             for in_device in self.device_types:
                 self.assert_device_equal(fn, [in_device], out_device)
 

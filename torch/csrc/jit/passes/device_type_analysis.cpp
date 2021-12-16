@@ -48,6 +48,11 @@ bool setReturnsToDevice(Node* n, c10::optional<Device> device) {
   return changed;
 }
 
+PropRule setReturnstoDeviceRule(DeviceType deviceType) {
+  Device device = Device(deviceType);
+  return [=](Node* n) { return setReturnsToDevice(n, device); };
+}
+
 bool propWithNoDevice(Node* n) {
   // Figure out what the common device to propagate is
   // Types of tensors must match, except CPU zerodim, which any
@@ -184,7 +189,6 @@ struct DeviceTypePropagationPass {
       const at::ArrayRef<Value*>& src1,
       const at::ArrayRef<Value*>& src2,
       const at::ArrayRef<Value*>& dst) {
-
     TORCH_INTERNAL_ASSERT(src1.size() == src2.size());
     TORCH_INTERNAL_ASSERT(src1.size() == dst.size());
 
@@ -236,10 +240,30 @@ struct DeviceTypePropagationPass {
     if (!op) {
       return;
     }
+    auto prop_fn = device_prop_registry_->find(*op);
+    if (prop_fn) {
+      PropRule rule = *prop_fn;
+      changed_ |= rule(n);
+      return;
+    }
     changed_ |= defaultDeviceProp(n);
   }
 
+  void buildRuleRegistry() {
+    // building a registry for all of the custom Device Type rules
+    static const OperatorMap<PropRule> temp_registry{
+        {"aten::cpu(Tensor self) -> Tensor",
+         setReturnstoDeviceRule(DeviceType::CPU)},
+        {"aten::cuda(Tensor self) -> Tensor",
+         setReturnstoDeviceRule(DeviceType::CUDA)},
+        {"aten::to_mkldnn(Tensor self, ScalarType? dtype) -> Tensor",
+         setReturnstoDeviceRule(DeviceType::MKLDNN)},
+    };
+    device_prop_registry_ =
+        std::make_unique<OperatorMap<PropRule>>(temp_registry);
+  }
 
+  std::unique_ptr<OperatorMap<PropRule>> device_prop_registry_;
   std::shared_ptr<Graph> graph_;
   bool changed_ = false;
 };
