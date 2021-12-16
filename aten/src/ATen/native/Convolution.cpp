@@ -25,6 +25,7 @@ namespace at { namespace native {
 DEFINE_DISPATCH(cudnn_convolution_backward_stub);
 DEFINE_DISPATCH(cudnn_convolution_transpose_backward_stub);
 DEFINE_DISPATCH(convolution_depthwise3x3_winograd_stub);
+DEFINE_DISPATCH(slow_conv3d_backward_stub);
 REGISTER_NO_CPU_DISPATCH(cudnn_convolution_backward_stub, cudnn_convolution_backward_fn);
 REGISTER_NO_CPU_DISPATCH(cudnn_convolution_transpose_backward_stub, cudnn_convolution_transpose_backward_fn);
 
@@ -1650,7 +1651,9 @@ std::tuple<Tensor, Tensor, Tensor> convolution_backward(
       break;
     case ConvBackend::Slow3d:
       std::tie(backend_grad_input, backend_grad_weight, backend_grad_bias) =
-        at::slow_conv3d_backward(grad_output, input, weight, kernel_size, params.stride, params.padding, output_mask);
+        slow_conv3d_backward_stub(
+            input.device().type(), grad_output, input, weight, kernel_size,
+            params.stride, params.padding, output_mask);
       break;
     // Handle backends that don't natively support groups > 1.
     case ConvBackend::NnpackSpatial:
