@@ -6,13 +6,14 @@
 #include <c10/util/Exception.h>
 #include <c10/util/StringUtil.h>
 #include <c10/util/irange.h>
+#include <caffe2/serialize/versions.h>
 #include <torch/csrc/jit/api/function_impl.h>
 #include <torch/csrc/jit/api/module.h>
 #include <torch/csrc/jit/frontend/error_report.h>
-#include <torch/csrc/jit/frontend/versioned_symbols.h>
 #include <torch/csrc/jit/ir/attributes.h>
 #include <torch/csrc/jit/ir/ir.h>
 #include <torch/csrc/jit/ir/ir_views.h>
+#include <torch/csrc/jit/operator_upgraders/version_map.h>
 #include <torch/csrc/jit/resource_guard.h>
 #include <torch/csrc/jit/runtime/calculate_necessary_args.h>
 
@@ -741,9 +742,25 @@ struct PythonPrintImpl {
     }
   }
 
-  void checkVersion(const Node* const node) {
-    min_version_ =
-        std::max(min_version_, get_min_version_for_kind(node->kind()));
+  void checkVersion(Node* node) {
+    if (node->owningGraph()->get_op_version().has_value()) {
+      min_version_ = std::max(min_version_, node->owningGraph()->get_op_version().value());
+    } else {
+      // if there is no version attached to the graph,
+      // we still want to find the min required runtime
+      // to run this model. This can happen when we are
+      // saving a model the first time.
+      if (auto schema = node->maybeSchema()) {
+        auto schema_name = getFullSchemaName(*schema);
+        auto version_entry = get_operator_version_map().find(schema_name);
+        if (version_entry != get_operator_version_map().end()) {
+          const auto& entry = version_entry->second;
+          min_version_ = std::max(
+              min_version_,
+              uint64_t(entry[entry.size() - 1].bumped_at_version));
+        }
+      }
+    }
   }
 
   void printNode(Node* node, bool print_const) {
@@ -1594,7 +1611,7 @@ struct PythonPrintImpl {
   bool enforce_importable_;
 
   // The least version that supports all printed ops
-  uint64_t min_version_ = 0;
+  uint64_t min_version_ = caffe2::serialize::kMinSupportedFileFormatVersion;
 };
 
 PythonPrint::PythonPrint(
