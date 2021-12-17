@@ -45,6 +45,7 @@
 
 // #include <functional>
 #include "torch/csrc/lazy/core/shape.h"
+#include <ATen/native/ConvUtils.h>
 #include "aten/src/ATen/native/ReduceOpsUtils.h"
 #include "lazy_tensor_core/csrc/ts_backend/LazyShapeInference.h"
 #include "torch/csrc/api/include/torch/enum.h"
@@ -53,6 +54,20 @@ namespace torch_lazy_tensors {
 namespace ir {
 namespace ops {
 using Shape = torch::lazy::Shape;
+
+std::vector<Shape> compute_shape_convolution_backward_overrideable(const at::Tensor & grad_output, const at::Tensor & input, const at::Tensor & weight, at::IntArrayRef stride, at::IntArrayRef padding, at::IntArrayRef dilation, bool transposed, at::IntArrayRef output_padding, int64_t groups, ::std::array<bool,3> output_mask) {
+  TORCH_INTERNAL_ASSERT(grad_output.dim() > 1);
+  return {Shape(input.scalar_type(), input.sizes().vec()),
+          Shape(weight.scalar_type(), weight.sizes().vec()),
+          Shape(grad_output.scalar_type(), {grad_output.size(1)})};
+}
+std::vector<Shape> compute_shape_convolution_overrideable(const at::Tensor & input, const at::Tensor & weight, const c10::optional<at::Tensor> & bias, at::IntArrayRef stride, at::IntArrayRef padding, at::IntArrayRef dilation, bool transposed, at::IntArrayRef output_padding, int64_t groups) {
+  if (!transposed) {
+    return {Shape(input.scalar_type(), at::native::conv_output_size(input.sizes(), weight.sizes(), padding, stride, dilation))};
+  } else {
+    return {Shape(input.scalar_type(), at::native::conv_input_size(input.sizes(), weight.sizes(), padding, output_padding, stride, dilation, groups))};
+  }
+}
 
 std::vector<Shape> compute_shape_masked_fill(at::Tensor & self, const at::Tensor & mask, const at::Scalar & value) {
   return {Shape(self.scalar_type(), self.sizes().vec())};
